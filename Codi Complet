@@ -1,6 +1,5 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
-#include <mbedtls/md5.h> // Incluye la funcionalidad nativa para MD5
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -12,9 +11,7 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
-Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire,OLED_RESET);
-
-
+Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 
 const char *ssid = "AP_asix";
@@ -29,125 +26,105 @@ int LED_state = LOW;
 
 // Generar HTML para la página web
 String getHTML() {
-String html = "<!DOCTYPE HTML>";
-html += "<html>";
-html += "<head>";
-html += "<link rel='icon' href='data:,'>";
-html += "<style>";
-html +=    "body { font-family: Arial; text-align: center; margin: 20px; }";
-html +=    ".button { padding: 10px 20px; margin: 10px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; }";
-html +=    ".on { background-color: green; color: white; }";
-html +=    ".off { background-color: red; color: white; }";
-html += "</style>";
-html += "</head>";
-html += "<body>";
-html +=    "<h1>Control del LED</h1>";
-html +=      "<p>Estado del LED:";
-html +=          "<span style='color: " + String(LED_state == HIGH ? "green" : "red") + ";'>";
-html +=             LED_state == HIGH ? "ENCENDIDO" : "APAGADO";
-html +=          "</span>";
-html +=       "</p>";
-html +=      "<a href='/led1/on'><button class='button on'>Encender</button></a>";
-html +=      "<a href='/led1/off'><button class='button off'>Apagar</button></a>";
-html += "</body>";
-html += "</html>";
-
-return html;
-}
-
-// Función para calcular el MD5 utilizando mbedtls
-void calcularMD5(const char *data, char *buf) {
-uint8_t result[16]; // MD5 genera 16 bytes
-mbedtls_md5((const unsigned char *)data, strlen(data), result);
+   String html = "<!DOCTYPE HTML>";
+   html += "<html>";
+   html += "<head>";
+   html += "<link rel='icon' href='data:,'>";
+   html += "<style>";
+   html += "body { font-family: Arial; text-align: center; margin: 20px; }";
+   html += ".button { padding: 10px 20px; margin: 10px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; }";
+   html += ".on { background-color: green; color: white; }";
+   html += ".off { background-color: red; color: white; }";
+   html += "</style>";
+   html += "</head>";
+   html += "<body>";
+   html += "<h1>Control del LED</h1>";
+   html += "<p>Estado del LED:";
+   html += "<span style='color: " + String(LED_state == HIGH ? "green" : "red") + ";'>";
+   html += LED_state == HIGH ? "ENCENDIDO" : "APAGADO";
+   html += "</span>";
+   html += "</p>";
+   html += "<a href='/led1/on'><button class='button on'>Encender</button></a>";
+   html += "<a href='/led1/off'><button class='button off'>Apagar</button></a>";
+   html += "</body>";
+   html += "</html>";
 
 
-// Convertir los bytes del hash a una cadena hexadecimal
-for (int i = 0; i < 16; i++) {
-  sprintf(buf + (i * 2), "%02x", result[i]);
-}
-buf[32] = '\0'; // Asegurar el terminador nulo de la cadena
+   return html;
 }
 
 
 void setup() {
-Serial.begin(115200);
-pinMode(LED_PIN, OUTPUT);
-digitalWrite(LED_PIN, LED_state);
+   Serial.begin(115200);
+   pinMode(LED_PIN, OUTPUT);
+   digitalWrite(LED_PIN, LED_state);
 
 
-// Configura la comunicación I2C
- Wire.begin(21, 22); // Pines SDA = 21, SCL = 22
- // Inicializa la pantalla OLED con la dirección I2C 0x3C
- if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-   oled.println(F("No se puede iniciar la pantalla OLED SSD1306"));
- while (1);
- }
+   // Configura la comunicación I2C
+   Wire.begin(21, 22); // Pines SDA = 21, SCL = 22
 
 
- oled.clearDisplay();
- oled.setTextSize(1);
- oled.setCursor(0, 0);
- oled.setTextColor(WHITE);
+   // Inicializa la pantalla OLED con la dirección I2C 0x3C
+   if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+       Serial.println(F("No se puede iniciar la pantalla OLED SSD1306"));
+       while (1);
+   }
 
 
-// Conectar al Wi-Fi
-WiFi.begin(ssid, password);
-while (WiFi.status() != WL_CONNECTED) {
-  delay(1000);
-  oled.println("Conectando al WiFi...");
-}
-oled.println("Conectado al WiFi");
-delay(500);
-oled.display();
+   oled.clearDisplay();
+   oled.setTextSize(1);
+   oled.setCursor(0, 0);
+   oled.setTextColor(WHITE);
 
 
-// Imprimir la dirección IP del ESP32
-oled.print("ESP32 -> ");
-oled.println(WiFi.localIP());
-oled.display();
+   // Conectar al Wi-Fi
+   WiFi.begin(ssid, password);
+   while (WiFi.status() != WL_CONNECTED) {
+       delay(1000);
+       oled.println("Conectando al WiFi...");
+       oled.display();
+   }
+   oled.println("Conectado al WiFi");
+   delay(500);
+   oled.display();
 
 
-// Ejemplo de uso de calcularMD5
-const char *mensaje = "mensaje de prueba";
-char hash[33]; // Espacio para 32 caracteres + terminador nulo
-calcularMD5(mensaje, hash);
+   // Imprimir la dirección IP del ESP32
+   oled.print("ESP32 -> ");
+   oled.println(WiFi.localIP());
+   oled.display();
 
 
-// Mostrar el resultado del MD5 en el monitor serie
-Serial.print("MD5 del mensaje: ");
-Serial.println(hash);
+   // Página principal
+   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+       Serial.println("ESP32 Web Server: Nueva solicitud recibida (GET /)");
+       request->send(200, "text/html", getHTML());
+   });
 
 
-// Página principal
-server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-  Serial.println("ESP32 Web Server: Nueva solicitud recibida (GET /)");
-  request->send(200, "text/html", getHTML());
-});
+   // Ruta para encender el LED
+   server.on("/led1/on", HTTP_GET, [](AsyncWebServerRequest *request) {
+       Serial.println("ESP32 Web Server: Nueva solicitud recibida (GET /led1/on)");
+       LED_state = HIGH;
+       digitalWrite(LED_PIN, LED_state);
+       request->send(200, "text/html", getHTML());
+   });
 
 
-// Ruta para encender el LED
-server.on("/led1/on", HTTP_GET, [](AsyncWebServerRequest *request) {
-  Serial.println("ESP32 Web Server: Nueva solicitud recibida (GET /led1/on)");
-  LED_state = HIGH;
-  digitalWrite(LED_PIN, LED_state);
-  request->send(200, "text/html", getHTML());
-});
+   // Ruta para apagar el LED
+   server.on("/led1/off", HTTP_GET, [](AsyncWebServerRequest *request) {
+       Serial.println("ESP32 Web Server: Nueva solicitud recibida (GET /led1/off)");
+       LED_state = LOW;
+       digitalWrite(LED_PIN, LED_state);
+       request->send(200, "text/html", getHTML());
+   });
 
 
-// Ruta para apagar el LED
-server.on("/led1/off", HTTP_GET, [](AsyncWebServerRequest *request) {
-  Serial.println("ESP32 Web Server: Nueva solicitud recibida (GET /led1/off)");
-  LED_state = LOW;
-  digitalWrite(LED_PIN, LED_state);
-  request->send(200, "text/html", getHTML());
-});
-
-
-// Iniciar el servidor
-server.begin();
+   // Iniciar el servidor
+   server.begin();
 }
 
 
 void loop() {
-// Aquí puedes añadir tareas adicionales si es necesario
+   // Aquí puedes añadir tareas adicionales si es necesario
 }
