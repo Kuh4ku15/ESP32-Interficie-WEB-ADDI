@@ -30,6 +30,7 @@ String getHTML() {
     html += ".button { padding: 10px 20px; margin: 10px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; }";
     html += ".on { background-color: green; color: white; }";
     html += ".off { background-color: red; color: white; }";
+    html += ".pampalluga { background-color: blue; color: white; }";
     html += "</style>";
     html += "</head>";
     html += "<body>";
@@ -39,10 +40,17 @@ String getHTML() {
     html += LED_state == HIGH ? "ENCENDIDO" : "APAGADO";
     html += "</span>";
     html += "</p>";
+    html += "<p>Modo Parpadeo: ";
+    html += "<span style='color: " + String(pampalluga_active ? "blue" : "gray") + ";'>";
+    html += pampalluga_active ? "ACTIVADO" : "DESACTIVADO";
+    html += "</span>";
+    html += "</p>";
     html += "<a href='/led1/on'><button class='button on'>Encender</button></a>";
     html += "<a href='/led1/off'><button class='button off'>Apagar</button></a>";
     html += "<br>";
-    html += "<a href='/led1/pampalluga'><button class='button on'>Pampalluga</button></a>";
+    html += "<a href='/led1/pampalluga'><button class='button pampalluga'>";
+    html += pampalluga_active ? "Pampalluga (Activado)" : "Pampalluga";
+    html += "</button></a>";
     html += "</body>";
     html += "</html>";
 
