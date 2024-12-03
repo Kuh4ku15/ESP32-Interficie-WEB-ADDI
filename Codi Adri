@@ -1,1 +1,181 @@
+#include <WiFi.h>
+#include <ESPAsyncWebServer.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define LED_PIN 18  // ESP32 pin GPIO18 conectado al LED
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+const char *ssid = "AP_asix";
+const char *password = "AP_asix2023";
+
+AsyncWebServer server(80);
+
+int LED_state = LOW;
+bool pampalluga_active = false;
+bool bomba_active = false;
+
+// Generar HTML para la página web
+String getHTML() {
+    String html = "<!DOCTYPE HTML>";
+    html += "<html>";
+    html += "<head>";
+    html += "<link rel='icon' href='data:,'>";
+    html += "<style>";
+    html += "body { font-family: Arial; text-align: center; margin: 20px; }";
+    html += ".button { padding: 10px 20px; margin: 10px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; }";
+    html += ".on { background-color: green; color: white; }";
+    html += ".off { background-color: red; color: white; }";
+    html += ".pampalluga { background-color: blue; color: white; }";
+    html += ".bomba { background-color: orange; color: white; }";
+    html += "</style>";
+    html += "</head>";
+    html += "<body>";
+    html += "<h1>Control del LED</h1>";
+    html += "<p>Estado del LED: ";
+    html += "<span style='color: " + String(LED_state == HIGH ? "green" : "red") + ";'>";
+    html += LED_state == HIGH ? "ENCENDIDO" : "APAGADO";
+    html += "</span>";
+    html += "</p>";
+    html += "<p>Modo: ";
+    if (bomba_active) {
+        html += "<span style='color: orange;'>BOMBA ACTIVADA</span>";
+    } else if (pampalluga_active) {
+        html += "<span style='color: blue;'>PAMPALEO ACTIVADO</span>";
+    } else {
+        html += "<span style='color: gray;'>INACTIVO</span>";
+    }
+    html += "</p>";
+    html += "<a href='/led1/on'><button class='button on'>Encender</button></a>";
+    html += "<a href='/led1/off'><button class='button off'>Apagar</button></a>";
+    html += "<br>";
+    html += "<a href='/led1/pampalluga'><button class='button pampalluga'>";
+    html += pampalluga_active ? "Pampalluga (Activado)" : "Pampalluga";
+    html += "</button></a>";
+    html += "<a href='/led1/bomba'><button class='button bomba'>Bomba</button></a>";
+    html += "</body>";
+    html += "</html>";
+
+    return html;
+}
+
+void setup() {
+    Serial.begin(115200);
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LED_state);
+
+    // Configura la comunicación I2C
+    Wire.begin(21, 22); // Pines SDA = 21, SCL = 22
+
+    // Inicializa la pantalla OLED con la dirección I2C 0x3C
+    if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println(F("No se puede iniciar la pantalla OLED SSD1306"));
+        while (1);
+    }
+
+    oled.clearDisplay();
+    oled.setTextSize(1);
+    oled.setCursor(0, 0);
+    oled.setTextColor(WHITE);
+
+    // Conectar al Wi-Fi
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        oled.println("Conectando al WiFi...");
+        oled.display();
+    }
+    oled.println("Conectado al WiFi");
+    delay(500);
+    oled.display();
+
+    // Imprimir la dirección IP del ESP32
+    oled.print("ESP32 -> ");
+    oled.println(WiFi.localIP());
+    oled.display();
+
+    // Página principal
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(200, "text/html", getHTML());
+    });
+
+    // Ruta para encender el LED
+    server.on("/led1/on", HTTP_GET, [](AsyncWebServerRequest *request) {
+        LED_state = HIGH;
+        pampalluga_active = false;
+        bomba_active = false;
+        digitalWrite(LED_PIN, LED_state);
+        request->send(200, "text/html", getHTML());
+    });
+
+    // Ruta para apagar el LED
+    server.on("/led1/off", HTTP_GET, [](AsyncWebServerRequest *request) {
+        LED_state = LOW;
+        pampalluga_active = false;
+        bomba_active = false;
+        digitalWrite(LED_PIN, LED_state);
+        request->send(200, "text/html", getHTML());
+    });
+
+    // Ruta para modo pampalluga
+    server.on("/led1/pampalluga", HTTP_GET, [](AsyncWebServerRequest *request) {
+        pampalluga_active = true;
+        bomba_active = false;
+        request->send(200, "text/html", getHTML());
+    });
+
+    // Ruta para modo bomba
+    server.on("/led1/bomba", HTTP_GET, [](AsyncWebServerRequest *request) {
+        pampalluga_active = false;
+        bomba_active = true;
+        request->send(200, "text/html", getHTML());
+    });
+
+    // Iniciar el servidor
+    server.begin();
+}
+
+void loop() {
+    static unsigned long lastBlinkTime = 0;
+    static int countdown = 15;
+
+    if (bomba_active) {
+        oled.clearDisplay();
+        oled.setTextSize(2);  // Tamaño grande para los números
+        oled.setCursor(50, 20);  // Centrar los números
+        oled.print(countdown);
+        oled.display();
+
+        unsigned long interval = map(countdown, 0, 15, 50, 2000); // Ajusta velocidad del parpadeo
+        if (millis() - lastBlinkTime >= interval) {
+            lastBlinkTime = millis();
+            LED_state = !LED_state;
+            digitalWrite(LED_PIN, LED_state);
+            countdown--;
+            if (countdown < 0) {
+                bomba_active = false;
+                countdown = 15;
+                digitalWrite(LED_PIN, LOW);
+
+                // Mostrar "BOMBA!!!!" en grande
+                oled.clearDisplay();
+                oled.setTextSize(3);  // Tamaño extra grande
+                oled.setCursor(10, 20);  // Centrado
+                oled.println("BOMBA!");
+                oled.display();
+                delay(5000);  // Mostrar el mensaje durante 5 segundos
+                oled.clearDisplay();
+            }
+        }
+    } else if (pampalluga_active && millis() - lastBlinkTime > 1000) {
+        lastBlinkTime = millis();
+        LED_state = !LED_state;
+        digitalWrite(LED_PIN, LED_state);
+    }
+}
 
