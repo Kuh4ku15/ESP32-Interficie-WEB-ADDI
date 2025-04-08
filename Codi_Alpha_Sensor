@@ -1,0 +1,251 @@
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <ArduinoJson.h>
+#include <HTTPClient.h>
+
+//LA IP ES 172.20.10.5
+
+// Reemplazar con sus datos de su red WIFI
+const char* ssid = "iPhone";
+const char* password = "yepa1234";
+
+// Inicializar BOT Telegram
+#define BOTtoken "7892811083:AAF1WMzQ5nRbn1STBLAMthPANmwhP6lI1Hg"  // Tu Bot Token (Obtener de Botfather)
+#define CHAT_ID "1499811871" // Usa @myidbot para averiguar el chat ID y haz click en "start" antes de enviar mensajes al bot
+
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOTtoken, client);
+
+const int buzPin = 25;
+const int motionSensor = 27; // Sensor PIR
+bool motionDetected = false;
+
+// Indica cuando se detecta movimiento
+void IRAM_ATTR detectsMovement() {
+  motionDetected = true;
+}
+
+// Función para enviar mensajes a Telegram
+void sendTelegramMessage(String message) {
+  bot.sendMessage(CHAT_ID, message, "");
+}
+
+// Función para enviar logs al servidor
+void sendLogToServer(String logMessage) {
+  HTTPClient http;
+  http.begin("http://172.20.10.9:8080/log"); // Cambia la IP por la del servidor
+  http.addHeader("Content-Type", "text/plain");
+  int httpResponseCode = http.POST(logMessage);
+  if (httpResponseCode > 0) {
+    Serial.print("Log enviado al servidor, código de respuesta: ");
+    Serial.println(httpResponseCode);
+  } else {
+    Serial.print("Error al enviar el log, código de error: ");
+    Serial.println(httpResponseCode);
+  }
+  http.end();
+}
+
+// Función para obtener la fecha y hora actual formateada
+String getCurrentDateTime() {
+  time_t now = time(nullptr);
+  struct tm timeinfo;
+  localtime_r(&now, &timeinfo);
+  
+  char buffer[80];
+  strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &timeinfo);
+  return String(buffer);
+}
+
+// Función para habilitar la cámara, cambiar la resolución y capturar la imagen en un formato visible desde Telegram
+void sendPhoto() {
+  HTTPClient http;
+  Serial.println("Habilitando ESP32-CAM...");
+
+  // Código para habilitar la cámara si está apagada
+  http.begin("http://172.20.10.6/control?var=framesize&val=1"); // Ajusta la IP y el comando según tu cámara
+  int httpCode = http.GET();
+  Serial.print("HTTP code (habilitar cámara): ");
+  Serial.println(httpCode);
+  http.end();
+
+  delay(500); // Espera breve para asegurar que la cámara esté habilitada
+
+  // Ajustar la resolución de la cámara a 320x240 (QVGA)
+  Serial.println("Ajustando la resolución de la cámara...");
+  http.begin("http://172.20.10.6/control?var=framesize&val=3"); // Cambia <ESP32-CAM-IP> por la IP del ESP32-CAM
+  httpCode = http.GET();
+  Serial.print("HTTP code (ajustar resolución): ");
+  Serial.println(httpCode);
+  http.end();
+
+  delay(500); // Espera breve para asegurar que la resolución esté ajustada
+
+  Serial.println("Conectando a ESP32-CAM...");
+  http.begin("http://172.20.10.6/capture"); // Cambia <ESP32-CAM-IP> por la IP del ESP32-CAM
+  httpCode = http.GET();
+
+  Serial.print("HTTP code (capturar imagen): ");
+  Serial.println(httpCode);
+
+  if (httpCode == HTTP_CODE_OK) {
+    Serial.println("Conexión exitosa, capturando imagen...");
+    WiFiClient* stream = http.getStreamPtr();
+    size_t imageSize = stream->available();
+
+    if (imageSize > 0) {
+      Serial.print("Tamaño de la imagen: ");
+      Serial.println(imageSize);
+
+      uint8_t imageBuffer[imageSize];
+      stream->readBytes(imageBuffer, imageSize);
+
+      // Prepara el encabezado y el pie de la solicitud
+      String head = "--electroniclinic\r\nContent-Disposition: form-data; name=\"chat_id\"; \r\n\r\n" + String(CHAT_ID) + "\r\n--electroniclinic\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
+      String tail = "\r\n--electroniclinic--\r\n";
+
+      int totalLen = head.length() + imageSize + tail.length();
+
+      WiFiClientSecure clientTCP;
+      clientTCP.setCACert(TELEGRAM_CERTIFICATE_ROOT);
+
+      if (!clientTCP.connect("api.telegram.org", 443)) {
+        Serial.println("Connection to Telegram failed");
+        return;
+      }
+
+      clientTCP.println("POST /bot" + String(BOTtoken) + "/sendPhoto HTTP/1.1");
+      clientTCP.println("Host: api.telegram.org");
+      clientTCP.println("Content-Length: " + String(totalLen));
+      clientTCP.println("Content-Type: multipart/form-data; boundary=electroniclinic");
+      clientTCP.println();
+      clientTCP.print(head);
+
+      // Envía el búfer de la foto en fragmentos
+      uint8_t *fbBuf = imageBuffer;
+      size_t fbLen = imageSize;
+      for (size_t n = 0; n < fbLen; n += 1024) {
+        if (n + 1024 < fbLen) {
+          clientTCP.write(fbBuf, 1024);
+          fbBuf += 1024;
+        } else if (fbLen % 1024 > 0) {
+          size_t remainder = fbLen % 1024;
+          clientTCP.write(fbBuf, remainder);
+        }
+      }
+
+      clientTCP.print(tail);
+      Serial.println("Imagen enviada!");
+      
+      // Enviar log al servidor con fecha y hora actual
+      String logMessage = "Alerta enviada a Telegram el: " + getCurrentDateTime();
+      sendLogToServer(logMessage);
+    } else {
+      Serial.println("No se recibieron datos de imagen.");
+    }
+  } else {
+    Serial.print("Error al capturar la imagen, código HTTP: ");
+    Serial.println(httpCode);
+  }
+  http.end();
+}
+
+void handleNewMessages(int numNewMessages) {
+  for (int i = 0; i < numNewMessages; i++) {
+    String chat_id = String(bot.messages[i].chat_id);
+    if (chat_id != CHAT_ID) {
+      bot.sendMessage(chat_id, "Usuario No Autorizado", "");
+      continue;
+    }
+
+    String text = bot.messages[i].text;
+
+    // Imprimir el comando recibido para depuración
+    Serial.print("Comando recibido: ");
+    Serial.println(text);
+
+    if (text == "/alarma_on") {
+      sendTelegramMessage("Alarma activada");
+      digitalWrite(buzPin, HIGH);
+      
+      // Enviar log al servidor
+      String logMessage = "Alarma activada el: " + getCurrentDateTime();
+      sendLogToServer(logMessage);
+    } else if (text == "/alarma_off") {
+      sendTelegramMessage("Alarma desactivada");
+      digitalWrite(buzPin, LOW);
+      
+      // Enviar log al servidor
+      String logMessage = "Alarma desactivada el: " + getCurrentDateTime();
+      sendLogToServer(logMessage);
+    } else if (text == "/capturar_imagen") {
+      sendTelegramMessage("Capturando imagen...");
+      sendPhoto();
+    } else if (text == "/m") { // Agregar este caso para mostrar el menú
+      bot.sendMessage(chat_id, "Comandos disponibles:\n/alarma_on - Activar alarma\n/alarma_off - Desactivar alarma\n/capturar_imagen - Tomar foto");
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Configuración PIR Motion Sensor
+  pinMode(motionSensor, INPUT_PULLUP);
+  pinMode(buzPin, OUTPUT);
+  attachInterrupt(digitalPinToInterrupt(motionSensor), detectsMovement, RISING);
+
+  // Configurar el tiempo (NTP)
+  configTime(0, 0, "pool.ntp.org"); // Configura el tiempo usando NTP
+
+  // Conectar a WiFi
+  Serial.print("Conectando a WiFi: ");
+  Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println("\nWiFi conectado");
+  Serial.print("Dirección IP: ");
+  Serial.println(WiFi.localIP());
+
+  // Esperar a que se sincronice el tiempo
+  Serial.println("Esperando sincronización de tiempo...");
+  while (time(nullptr) < 24 * 3600) {
+    Serial.print(".");
+    delay(1000);
+  }
+  Serial.println("\nTiempo sincronizado");
+
+  // Configuración bot de Telegram
+  sendTelegramMessage("Bot iniciado");
+  
+  // Enviar log al servidor
+  String logMessage = "Sistema iniciado el: " + getCurrentDateTime();
+  sendLogToServer(logMessage);
+}
+
+void loop() {
+  int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+  while (numNewMessages) {
+    handleNewMessages(numNewMessages);
+    numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+  }
+
+  if (motionDetected) {
+    Serial.println(WiFi.localIP());
+    sendPhoto();
+    sendTelegramMessage("Se ha detectado movimiento");
+    
+    // Enviar log al servidor
+    String logMessage = "Movimiento detectado el: " + getCurrentDateTime();
+    sendLogToServer(logMessage);
+    
+    motionDetected = false;
+  }
+}
