@@ -1,0 +1,3 @@
+* Implementar + d'1a càmara en el codi d'1 sensor i comprobar el funcionament.
+* Provar a que el servidor de logs també agafi les imatges que s'envien al Telegram (implementar otro puerto a la hora de usar script para recibir imagenes en el serv).
+* Depurar missatges enviats per http al serie d'Arduino.
