@@ -225,7 +225,7 @@ void setup() {
   // Configuración bot de Telegram
   sendTelegramMessage("Bot iniciado");
   
-  // Enviar log al servidor
+  // Enviar log al servidor Mosquito
   String logMessage = "Sistema iniciado el: " + getCurrentDateTime();
   sendLogToServer(logMessage);
 }
